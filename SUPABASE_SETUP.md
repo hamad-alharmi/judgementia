@@ -1,58 +1,39 @@
-# Supabase setup for Judgementia
+# Fix: "Could not find the table 'public.rooms'"
 
-Sign-up fails without this one-time configuration.
+That error means **no Judgementia tables exist** in your Supabase project yet. The app cannot create rooms until you run the SQL below **once**.
 
-## Step 1 — Run SQL (required)
+## Step-by-step (2 minutes)
 
-1. Open [Supabase SQL Editor](https://supabase.com/dashboard/project/taztpqmdmryzjlctfvtk/sql/new)
-2. Paste the full contents of **`supabase/SETUP_COMPLETE.sql`**
-3. Click **Run**
+1. **Log in** to [Supabase](https://supabase.com/dashboard/project/taztpqmdmryzjlctfvtk)
+2. Open **SQL Editor** (left sidebar) → **New query**
+3. Open this file in your project: **`supabase/RUN_THIS_FIRST.sql`**
+4. **Select all** (Ctrl+A) → **Copy** → **Paste** into the SQL Editor
+5. Click **Run** (or Ctrl+Enter)
+6. You should see **Success. No rows returned**
+7. Open **Table Editor** — you should see: `profiles`, `rooms`, `room_players`, `game_state`
+8. **Hard-refresh** Judgementia (Ctrl+Shift+R) and try **Generate 4-Letter Code** again
 
-This creates tables, realtime, RLS policies, auto-profile creation, and auto-email-confirmation.
+Direct link to SQL Editor:  
+https://supabase.com/dashboard/project/taztpqmdmryzjlctfvtk/sql/new
 
-## Step 2 — Auth URLs (required)
+## Auth URLs (after tables work)
 
-Go to **Authentication → URL Configuration**:
+**Authentication → URL Configuration**
 
-| Field | Value |
-|--------|--------|
-| **Site URL** | Your Vercel URL, e.g. `https://judgementia.vercel.app` |
-| **Redirect URLs** | Add both: |
-| | `http://localhost:3000/auth/callback` |
-| | `https://YOUR-VERCEL-APP.vercel.app/auth/callback` |
+- Site URL: your Vercel URL
+- Redirect URLs:
+  - `http://localhost:3000/auth/callback`
+  - `https://YOUR-APP.vercel.app/auth/callback`
 
-## Step 3 — Email provider (required)
-
-**Authentication → Providers → Email**
-
-- Ensure **Email** is **enabled**
-- Ensure **Enable sign ups** is **on**
-- Optional: turn **off** “Confirm email” if you prefer manual confirmation (Step 1 SQL already auto-confirms)
-
-## Step 4 — Vercel env vars
-
-In your Vercel project → **Settings → Environment Variables**:
+## Vercel environment variables
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://taztpqmdmryzjlctfvtk.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<your anon key>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<from Supabase → Settings → API>
 GEMINI_API_KEY=<your key>
-NEXT_PUBLIC_SITE_URL=https://YOUR-VERCEL-APP.vercel.app
+NEXT_PUBLIC_SITE_URL=https://YOUR-APP.vercel.app
 ```
 
-Redeploy after saving.
+## Still stuck?
 
-## Step 5 — Test
-
-1. Use a **new email** you have not signed up with before
-2. Sign up → you should enter the court (gavel animation → main menu)
-3. If you already signed up earlier, use **Login** instead
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---------|-----|
-| “Sign up failed” / no user returned | Email may already exist → try **Login**, or use a new email |
-| “Email not confirmed” | Re-run `SETUP_COMPLETE.sql` (auto-confirm trigger) |
-| Redirect error | Add your Vercel `/auth/callback` URL in Step 2 |
-| Profile errors | Re-run `SETUP_COMPLETE.sql` (creates `profiles` + trigger) |
+In Supabase **Table Editor**, if `rooms` is missing, the SQL did not run on **this** project. Confirm the project URL matches `taztpqmdmryzjlctfvtk` in your `.env.local` / Vercel env vars.
