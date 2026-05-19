@@ -5,7 +5,12 @@ export type RoomStatus =
   | "jury_voting"
   | "verdict";
 
+import type { CharacterId } from "@/lib/characters";
+
+export type PlayerRole = "prosecutor" | "defendant";
+
 export interface AvatarConfig {
+  characterId: CharacterId;
   skinTone: "ivory" | "bronze" | "obsidian";
   robeColor: "midnight" | "crimson" | "gold";
   badgeStyle: "scales" | "gavel" | "seal";
@@ -13,17 +18,26 @@ export interface AvatarConfig {
 }
 
 export const DEFAULT_AVATAR_CONFIG: AvatarConfig = {
+  characterId: "kai",
   skinTone: "ivory",
   robeColor: "midnight",
   badgeStyle: "scales",
   hairStyle: "slick",
 };
 
+export interface RoomPlayerRow {
+  room_id: string;
+  user_id: string;
+  character_id: CharacterId;
+  role: PlayerRole;
+}
+
 export interface RoomRow {
   id: string;
   code: string;
   status: RoomStatus;
   scenario: string;
+  host_id: string | null;
 }
 
 export interface GameStateRow {
@@ -84,6 +98,11 @@ export interface Database {
           cases_lost?: number;
         };
         Update: Partial<ProfileRow>;
+      };
+      room_players: {
+        Row: RoomPlayerRow;
+        Insert: RoomPlayerRow;
+        Update: Partial<RoomPlayerRow>;
       };
     };
     Views: Record<string, never>;

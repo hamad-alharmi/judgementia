@@ -18,7 +18,18 @@ create table if not exists public.rooms (
   status text not null check (
     status in ('lobby', 'prosecutor_turn', 'defendant_turn', 'jury_voting', 'verdict')
   ),
-  scenario text not null
+  scenario text not null,
+  host_id uuid references auth.users (id) on delete set null
+);
+
+alter table public.rooms add column if not exists host_id uuid references auth.users (id) on delete set null;
+
+create table if not exists public.room_players (
+  room_id uuid not null references public.rooms (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  character_id text not null,
+  role text not null check (role in ('prosecutor', 'defendant')),
+  primary key (room_id, user_id)
 );
 
 create table if not exists public.game_state (
@@ -49,10 +60,17 @@ begin
 exception when duplicate_object then null;
 end $$;
 
+do $$
+begin
+  alter publication supabase_realtime add table public.room_players;
+exception when duplicate_object then null;
+end $$;
+
 -- 3) RLS
 alter table public.profiles enable row level security;
 alter table public.rooms enable row level security;
 alter table public.game_state enable row level security;
+alter table public.room_players enable row level security;
 
 drop policy if exists "profiles_select_all" on public.profiles;
 drop policy if exists "profiles_upsert_own" on public.profiles;
@@ -68,16 +86,24 @@ drop policy if exists "rooms_insert_auth" on public.rooms;
 drop policy if exists "rooms_update_auth" on public.rooms;
 
 create policy "rooms_select_all" on public.rooms for select using (true);
-create policy "rooms_insert_auth" on public.rooms for insert with check (auth.role() = 'authenticated');
-create policy "rooms_update_auth" on public.rooms for update using (auth.role() = 'authenticated');
+create policy "rooms_insert_auth" on public.rooms for insert to authenticated with check (auth.uid() is not null);
+create policy "rooms_update_auth" on public.rooms for update to authenticated using (auth.uid() is not null);
+
+drop policy if exists "room_players_select_all" on public.room_players;
+drop policy if exists "room_players_insert_own" on public.room_players;
+drop policy if exists "room_players_update_own" on public.room_players;
+
+create policy "room_players_select_all" on public.room_players for select using (true);
+create policy "room_players_insert_own" on public.room_players for insert to authenticated with check (auth.uid() = user_id);
+create policy "room_players_update_own" on public.room_players for update to authenticated using (auth.uid() = user_id);
 
 drop policy if exists "game_state_select_all" on public.game_state;
 drop policy if exists "game_state_insert_auth" on public.game_state;
 drop policy if exists "game_state_update_auth" on public.game_state;
 
 create policy "game_state_select_all" on public.game_state for select using (true);
-create policy "game_state_insert_auth" on public.game_state for insert with check (auth.role() = 'authenticated');
-create policy "game_state_update_auth" on public.game_state for update using (auth.role() = 'authenticated');
+create policy "game_state_insert_auth" on public.game_state for insert to authenticated with check (auth.uid() is not null);
+create policy "game_state_update_auth" on public.game_state for update to authenticated using (auth.uid() is not null);
 
 -- 4) Auto-create profile when auth user is created (works without login session)
 create or replace function public.handle_new_user()
@@ -95,7 +121,7 @@ begin
       split_part(coalesce(new.email, 'counsel@court'), '@', 1),
       'Counsel'
     ),
-    '{"skinTone":"ivory","robeColor":"midnight","badgeStyle":"scales","hairStyle":"slick"}'::jsonb
+    '{"characterId":"kai","skinTone":"ivory","robeColor":"midnight","badgeStyle":"scales","hairStyle":"slick"}'::jsonb
   )
   on conflict (id) do nothing;
   return new;

@@ -1,18 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  DEFAULT_AVATAR_CONFIG,
-  type AvatarConfig,
-} from "@/lib/database/types";
+import { motion } from "framer-motion";
+import type { CharacterId } from "@/lib/characters";
+import type { AvatarConfig, PlayerRole } from "@/lib/database/types";
+import { normalizeAvatarConfig } from "@/lib/avatar";
 import { useProfileRealtime } from "@/hooks/useProfileRealtime";
 import { useRoomRealtime } from "@/hooks/useRoomRealtime";
 import { useGameStateRealtime } from "@/hooks/useGameStateRealtime";
 import { updateProfileAvatar } from "@/lib/supabase/data";
-import { AvatarCustomizer } from "@/components/terminal/AvatarCustomizer";
+import { CharacterSelect } from "@/components/terminal/CharacterSelect";
 import { ProfileStats } from "@/components/terminal/ProfileStats";
 import { MatchmakingCore } from "@/components/terminal/MatchmakingCore";
-import { parseScenarioFromRoom } from "@/lib/scenarios";
+import { Courtroom } from "@/components/courtroom/Courtroom";
 
 interface MainTerminalProps {
   userId: string;
@@ -21,14 +21,16 @@ interface MainTerminalProps {
 export function MainTerminal({ userId }: MainTerminalProps) {
   const { profile, isLoading, refresh } = useProfileRealtime(userId);
   const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(
-    profile?.avatar_config ?? DEFAULT_AVATAR_CONFIG,
+    normalizeAvatarConfig(undefined),
   );
+  const [playerRole, setPlayerRole] = useState<PlayerRole>("prosecutor");
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
-  const [isSavingAvatar, setIsSavingAvatar] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [inCourtroom, setInCourtroom] = useState(false);
 
   useEffect(() => {
     if (profile?.avatar_config) {
-      setAvatarConfig(profile.avatar_config);
+      setAvatarConfig(normalizeAvatarConfig(profile.avatar_config));
     }
   }, [profile?.avatar_config]);
 
@@ -45,18 +47,33 @@ export function MainTerminal({ userId }: MainTerminalProps) {
     return Math.round((won / total) * 100);
   }, [profile?.cases_won, profile?.cases_lost]);
 
-  const activeScenario = room ? parseScenarioFromRoom(room.scenario) : null;
-
-  const saveAvatar = async () => {
-    setIsSavingAvatar(true);
-    await updateProfileAvatar(userId, avatarConfig);
+  const saveCharacter = async (next: AvatarConfig) => {
+    setAvatarConfig(next);
+    setIsSaving(true);
+    await updateProfileAvatar(userId, next);
     await refresh();
-    setIsSavingAvatar(false);
+    setIsSaving(false);
   };
+
+  if (inCourtroom && room && gameState) {
+    return (
+      <Courtroom
+        room={room}
+        gameState={gameState}
+        userId={userId}
+        characterId={avatarConfig.characterId}
+        playerRole={playerRole}
+        onExit={() => {
+          setInCourtroom(false);
+          setActiveRoomId(null);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950 px-4 py-10 text-zinc-100">
-      <div className="mx-auto max-w-6xl">
+      <motion.div className="mx-auto max-w-6xl" layout>
         <header className="mb-10 border-b border-zinc-800 pb-6">
           <p className="font-mono text-[10px] uppercase tracking-[0.4em] text-amber-500/80">
             Judgementia — Main Terminal
@@ -64,51 +81,85 @@ export function MainTerminal({ userId }: MainTerminalProps) {
           <h1 className="mt-2 font-legal text-3xl text-zinc-50">
             Supreme Litigation Command
           </h1>
-          <p className="mt-2 max-w-2xl font-legal text-sm text-zinc-500">
-            Configure counsel identity, review performance metrics, and deploy
-            into synchronized multiplayer chambers.
-          </p>
         </header>
 
+        <motion.div
+          className="mb-6 border border-zinc-800 bg-zinc-950/60 p-5"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <h2 className="font-mono text-[10px] uppercase tracking-[0.35em] text-amber-500/90">
+            Trial Role
+          </h2>
+          <div className="mt-3 flex gap-2">
+            {(["prosecutor", "defendant"] as const).map((role) => (
+              <button
+                key={role}
+                type="button"
+                onClick={() => setPlayerRole(role)}
+                className={
+                  playerRole === role
+                    ? "flex-1 border border-amber-600 bg-amber-950/40 py-2.5 font-mono text-[10px] uppercase tracking-widest text-amber-100"
+                    : "flex-1 border border-zinc-800 py-2.5 font-mono text-[10px] uppercase tracking-widest text-zinc-500 hover:border-zinc-600"
+                }
+              >
+                {role}
+              </button>
+            ))}
+          </div>
+        </motion.div>
+
         <div className="grid gap-6 lg:grid-cols-2">
-          <AvatarCustomizer
-            config={avatarConfig}
-            onChange={setAvatarConfig}
-            onSave={saveAvatar}
-            isSaving={isSavingAvatar}
+          <CharacterSelect
+            selectedId={avatarConfig.characterId}
+            onSelect={(id: CharacterId) => {
+              const next = { ...avatarConfig, characterId: id };
+              void saveCharacter(next);
+            }}
           />
           <ProfileStats
             profile={profile}
             isLoading={isLoading}
             judgeFavorability={judgeFavorability}
           />
-          <div className="lg:col-span-2">
+          <motion.div className="lg:col-span-2" layout>
             <MatchmakingCore
               userId={userId}
-              onRoomJoined={setActiveRoomId}
+              characterId={avatarConfig.characterId}
+              playerRole={playerRole}
+              onRoomJoined={(id) => {
+                setActiveRoomId(id);
+                setInCourtroom(true);
+              }}
             />
-          </div>
+          </motion.div>
         </div>
 
-        {room && (
-          <aside className="mt-8 border border-amber-900/40 bg-amber-950/10 p-5">
-            <p className="font-mono text-[10px] uppercase tracking-widest text-amber-500/90">
-              Active Chamber — {room.code} · {room.status}
+        {isSaving ? (
+          <p className="mt-4 text-center font-mono text-[10px] text-zinc-600">
+            Saving counsel dossier…
+          </p>
+        ) : null}
+
+        {room && !inCourtroom ? (
+          <motion.aside
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="mt-8 border border-amber-900/40 bg-amber-950/10 p-5"
+          >
+            <p className="font-mono text-[10px] uppercase text-amber-500/90">
+              Active chamber {room.code}
             </p>
-            {activeScenario && (
-              <h3 className="mt-2 font-legal text-lg text-zinc-100">
-                {activeScenario.title}
-              </h3>
-            )}
-            {gameState && (
-              <p className="mt-2 font-mono text-xs text-zinc-500">
-                Jury tally: {gameState.guilty_votes} guilty /{" "}
-                {gameState.not_guilty_votes} not guilty
-              </p>
-            )}
-          </aside>
-        )}
-      </div>
+            <button
+              type="button"
+              onClick={() => setInCourtroom(true)}
+              className="mt-3 border border-amber-700 px-4 py-2 font-mono text-[10px] uppercase tracking-widest text-amber-100"
+            >
+              Re-enter Courtroom
+            </button>
+          </motion.aside>
+        ) : null}
+      </motion.div>
     </div>
   );
 }

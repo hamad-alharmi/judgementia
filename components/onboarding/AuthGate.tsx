@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { upsertProfileRow } from "@/lib/supabase/data";
 import { DEFAULT_AVATAR_CONFIG } from "@/lib/database/types";
+import { normalizeAvatarConfig } from "@/lib/avatar";
 import { getAuthErrorMessage, isEmailNotConfirmedError } from "@/lib/auth/errors";
 import { getSiteUrl } from "@/lib/auth/site";
 import { ScalesOfJustice } from "@/components/icons/ScalesOfJustice";
@@ -44,7 +45,7 @@ export function AuthGate({ onAuthenticated }: AuthGateProps) {
     await upsertProfileRow({
       id: userId,
       username: username || email.split("@")[0] || "Counsel",
-      avatar_config: DEFAULT_AVATAR_CONFIG,
+            avatar_config: normalizeAvatarConfig(DEFAULT_AVATAR_CONFIG),
     });
   };
 

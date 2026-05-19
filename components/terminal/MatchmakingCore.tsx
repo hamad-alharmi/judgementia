@@ -1,22 +1,30 @@
 "use client";
 
 import { useState } from "react";
+import { motion } from "framer-motion";
+import type { CharacterId } from "@/lib/characters";
+import type { PlayerRole } from "@/lib/database/types";
 import { generateRoomCode } from "@/lib/rooms";
 import { formatScenarioForRoom, pickRandomScenario } from "@/lib/scenarios";
 import {
-  createGameStateRow,
   createRoomRow,
+  ensureGameStateRow,
   fetchOpenLobbyRoom,
   fetchRoomByCode,
+  upsertRoomPlayer,
 } from "@/lib/supabase/data";
 
 interface MatchmakingCoreProps {
   userId: string;
+  characterId: CharacterId;
+  playerRole: PlayerRole;
   onRoomJoined: (roomId: string) => void;
 }
 
 export function MatchmakingCore({
   userId,
+  characterId,
+  playerRole,
   onRoomJoined,
 }: MatchmakingCoreProps) {
   const [createdCode, setCreatedCode] = useState<string | null>(null);
@@ -27,15 +35,18 @@ export function MatchmakingCore({
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
-  const bootstrapGameState = async (roomId: string) => {
-    await createGameStateRow({
+  const registerPlayer = async (roomId: string) => {
+    await upsertRoomPlayer({
       room_id: roomId,
-      prosecutor_text: "",
-      defendant_text: "",
-      guilty_votes: 0,
-      not_guilty_votes: 0,
-      verdict_json: null,
+      user_id: userId,
+      character_id: characterId,
+      role: playerRole,
     });
+  };
+
+  const bootstrapRoom = async (roomId: string) => {
+    await ensureGameStateRow(roomId);
+    await registerPlayer(roomId);
   };
 
   const createRoom = async () => {
@@ -48,8 +59,9 @@ export function MatchmakingCore({
         code,
         status: "lobby",
         scenario: formatScenarioForRoom(scenario),
+        host_id: userId,
       });
-      await bootstrapGameState(room.id);
+      await bootstrapRoom(room.id);
       setCreatedCode(code);
       onRoomJoined(room.id);
     } catch (caught) {
@@ -71,6 +83,7 @@ export function MatchmakingCore({
         setError("Room not found.");
         return;
       }
+      await registerPlayer(room.id);
       onRoomJoined(room.id);
     } catch (caught) {
       setError(
@@ -87,6 +100,7 @@ export function MatchmakingCore({
     try {
       const openRoom = await fetchOpenLobbyRoom();
       if (openRoom) {
+        await registerPlayer(openRoom.id);
         setQueueStatus("matched");
         onRoomJoined(openRoom.id);
         return;
@@ -98,8 +112,9 @@ export function MatchmakingCore({
         code,
         status: "lobby",
         scenario: formatScenarioForRoom(scenario),
+        host_id: userId,
       });
-      await bootstrapGameState(room.id);
+      await bootstrapRoom(room.id);
       setQueueStatus("matched");
       onRoomJoined(room.id);
     } catch (caught) {
@@ -114,22 +129,24 @@ export function MatchmakingCore({
         Matchmaking Core
       </h2>
       <p className="mt-1 font-mono text-[10px] text-zinc-600">
-        Operator ID: {userId.slice(0, 8)}…
+        Role: <span className="text-amber-300/90">{playerRole}</span> · Counsel:{" "}
+        <span className="text-amber-300/90">{characterId}</span>
       </p>
 
-      <div className="mt-4 space-y-4">
+      <motion.div className="mt-4 space-y-4" layout>
         <div className="border border-zinc-800 p-4">
           <p className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">
             Create Custom Room
           </p>
-          <button
+          <motion.button
             type="button"
             onClick={() => void createRoom()}
             disabled={isBusy}
             className="mt-3 w-full border border-amber-800/60 bg-amber-950/30 py-2 font-mono text-xs uppercase tracking-widest text-amber-100 hover:bg-amber-950/50 disabled:opacity-50"
+            whileTap={{ scale: 0.98 }}
           >
             Generate 4-Letter Code
-          </button>
+          </motion.button>
           {createdCode && (
             <p className="mt-3 text-center font-mono text-2xl tracking-[0.5em] text-amber-300">
               {createdCode}
@@ -152,7 +169,7 @@ export function MatchmakingCore({
           <button
             type="button"
             onClick={() => void joinRoom()}
-            disabled={isBusy || joinCode.length < 4}
+            disabled={isBusy || joinCode.length <= 3}
             className="mt-3 w-full border border-zinc-700 py-2 font-mono text-xs uppercase tracking-widest text-zinc-300 hover:border-amber-700 disabled:opacity-50"
           >
             Enter Chamber
@@ -176,12 +193,16 @@ export function MatchmakingCore({
                 : "Enter Public Queue"}
           </button>
         </div>
-      </div>
+      </motion.div>
 
       {error && (
-        <p className="mt-4 border border-red-900/50 bg-red-950/20 px-3 py-2 font-mono text-xs text-red-300">
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="mt-4 border border-red-900/50 bg-red-950/20 px-3 py-2 font-mono text-xs leading-relaxed text-red-300"
+        >
           {error}
-        </p>
+        </motion.p>
       )}
     </section>
   );
