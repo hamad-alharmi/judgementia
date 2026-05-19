@@ -13,8 +13,16 @@ export function getAuthErrorMessage(error: unknown): string {
     return "Your email is not confirmed yet. Use the resend button below or check your inbox.";
   }
 
-  if (code === "user_already_registered") {
+  if (
+    code === "user_already_registered" ||
+    code === "email_exists" ||
+    message.toLowerCase().includes("already registered")
+  ) {
     return "An account with this email already exists. Try logging in.";
+  }
+
+  if (message.toLowerCase().includes("redirect") || code === "unexpected_failure") {
+    return "Auth redirect URL not allowed. Add /auth/callback in Supabase → Authentication → URL Configuration.";
   }
 
   if (code === "invalid_credentials") {

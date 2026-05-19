@@ -88,26 +88,35 @@ export function AuthGate({ onAuthenticated }: AuthGateProps) {
           throw signUpError;
         }
 
+        const signedUpUser = data.user ?? data.session?.user;
+
         if (data.session?.user) {
-          await ensureProfile(data.session.user.id);
+          try {
+            await ensureProfile(data.session.user.id);
+          } catch {
+            // Profile created by Supabase trigger (see SETUP_COMPLETE.sql).
+          }
           onAuthenticated();
           return;
         }
 
-        if (data.user) {
+        if (signedUpUser) {
           try {
-            await ensureProfile(data.user.id);
+            await ensureProfile(signedUpUser.id);
           } catch {
-            // Profile may be created after confirmation via trigger.
+            // Profile created by database trigger when not logged in yet.
           }
           setView("pending_email");
           setNotice(
-            "Account created. Confirm your email to enter the court — or run auto_confirm_email.sql in Supabase for instant access.",
+            "Account created. Check your email for the confirmation link, or run supabase/SETUP_COMPLETE.sql for instant access.",
           );
           return;
         }
 
-        throw new Error("Sign up failed. Please try again.");
+        setMode("login");
+        throw new Error(
+          "This email may already be registered. Try logging in, or use a different email. If this is your first sign-up, run supabase/SETUP_COMPLETE.sql in the Supabase SQL Editor.",
+        );
       }
 
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
