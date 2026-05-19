@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CourtBackdrop } from "@/components/courtroom/CourtBackdrop";
 import { DialogueBox } from "@/components/courtroom/DialogueBox";
+import { EvidenceVault } from "@/components/courtroom/EvidenceVault";
 import type { CharacterId } from "@/lib/characters";
 import { getCharacter } from "@/lib/characters";
 import {
@@ -13,7 +14,11 @@ import {
 } from "@/lib/court/logic";
 import { zoneForRoomStatus, statusLabel } from "@/lib/court/zones";
 import type { GameStateRow, RoomRow } from "@/lib/database/types";
-import { parseScenarioFromRoom } from "@/lib/scenarios";
+import { appendExhibitToArgument } from "@/lib/evidence";
+import {
+  getScenarioEvidence,
+  parseScenarioFromRoom,
+} from "@/lib/scenarios";
 import {
   fetchRoomPlayers,
   updateGameState,
@@ -56,12 +61,20 @@ export function Courtroom({
     () => parseScenarioFromRoom(room.scenario),
     [room.scenario],
   );
+  const evidence = useMemo(
+    () => getScenarioEvidence(scenario),
+    [scenario],
+  );
   const activeZone = zoneForRoomStatus(room.status);
   const isHost = room.host_id === userId;
   const canSubmit =
     canSubmitStatement(room.status, playerRole) &&
     !(playerRole === "prosecutor" && settings.prosecutorIsAi) &&
     !(playerRole === "defendant" && settings.defendantIsAi);
+
+  const handlePresentEvidence = useCallback((citation: string) => {
+    setDraft((current) => appendExhibitToArgument(current, citation));
+  }, []);
 
   useEffect(() => {
     void fetchRoomPlayers(room.id).then((players) => {
@@ -87,7 +100,11 @@ export function Courtroom({
       if (isBusy) {
         return;
       }
-      const ctx = { scenario: room.scenario, prosecutorText: gameState.prosecutor_text, defendantText: gameState.defendant_text };
+      const ctx = {
+        scenario: room.scenario,
+        prosecutorText: gameState.prosecutor_text,
+        defendantText: gameState.defendant_text,
+      };
       if (
         room.status === "prosecutor_turn" &&
         settings.prosecutorIsAi &&
@@ -192,11 +209,19 @@ export function Courtroom({
         }),
       });
 
+      const payload: unknown = await response.json();
       if (!response.ok) {
-        throw new Error("Chief Justice unavailable.");
+        const err =
+          typeof payload === "object" &&
+          payload !== null &&
+          "error" in payload &&
+          typeof (payload as { error: unknown }).error === "string"
+            ? (payload as { error: string }).error
+            : "Chief Justice unavailable.";
+        throw new Error(err);
       }
 
-      const body = (await response.json()) as JudgeResponseBody;
+      const body = payload as JudgeResponseBody;
       await updateGameState(room.id, { verdict_json: body.verdict });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Verdict failed.");
@@ -215,8 +240,12 @@ export function Courtroom({
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950">
-      <div className="mx-auto max-w-5xl px-4 py-6">
+    <motion.div
+      className="min-h-screen bg-zinc-950"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+    >
+      <div className="mx-auto max-w-7xl px-4 py-6">
         <header className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 pb-4">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.35em] text-amber-500/80">
@@ -226,6 +255,11 @@ export function Courtroom({
               <h1 className="mt-1 font-legal text-2xl text-zinc-50">
                 {scenario.title}
               </h1>
+            )}
+            {scenario && (
+              <p className="mt-1 font-sans text-xs text-zinc-500">
+                {scenario.charge}
+              </p>
             )}
           </div>
           <button
@@ -237,117 +271,127 @@ export function Courtroom({
           </button>
         </header>
 
-        <CourtBackdrop zoneId={activeZone} />
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,13fr)_minmax(0,7fr)]">
+          <div className="min-w-0 space-y-4">
+            <CourtBackdrop zoneId={activeZone} />
 
-        <div className="mt-4 space-y-3">
-          <AnimatePresence mode="wait">
-            {room.status === "prosecutor_turn" && (
-              <DialogueBox
-                key="pros"
-                characterId={
-                  settings.prosecutorIsAi
-                    ? settings.prosecutorAiCharacter
-                    : playerRole === "prosecutor"
-                      ? characterId
-                      : opponentCharacterId
-                }
-                speakerLabel="Prosecution"
-                text={gameState.prosecutor_text}
-                isPlayer={playerRole === "prosecutor"}
-                isTyping={playerRole === "prosecutor" && canSubmit}
-              />
-            )}
-            {room.status === "defendant_turn" && (
-              <DialogueBox
-                key="def"
-                characterId={
-                  settings.defendantIsAi
-                    ? settings.defendantAiCharacter
-                    : playerRole === "defendant"
-                      ? characterId
-                      : opponentCharacterId
-                }
-                speakerLabel="Defense"
-                text={gameState.defendant_text}
-                isPlayer={playerRole === "defendant"}
-                isTyping={playerRole === "defendant" && canSubmit}
-              />
-            )}
-            {room.status === "jury_voting" && (
-              <DialogueBox
-                key="jury"
-                characterId={activeSpeakerCharacter}
-                speakerLabel="Jury Foreman"
-                text={`Deliberation in progress… ${gameState.guilty_votes} guilty · ${gameState.not_guilty_votes} not guilty`}
-              />
-            )}
-            {room.status === "verdict" && gameState.verdict_json && (
-              <DialogueBox
-                key="verdict"
-                characterId="darius"
-                speakerLabel="Chief Justice Vanguard"
-                text={`${gameState.verdict_json.finalVerdict} — ${gameState.verdict_json.reasoning}`}
-              />
-            )}
-          </AnimatePresence>
+            <div className="space-y-3">
+              <AnimatePresence mode="wait">
+                {room.status === "prosecutor_turn" && (
+                  <DialogueBox
+                    key="pros"
+                    characterId={
+                      settings.prosecutorIsAi
+                        ? settings.prosecutorAiCharacter
+                        : playerRole === "prosecutor"
+                          ? characterId
+                          : opponentCharacterId
+                    }
+                    speakerLabel="Prosecution"
+                    text={gameState.prosecutor_text}
+                    isPlayer={playerRole === "prosecutor"}
+                    isTyping={playerRole === "prosecutor" && canSubmit}
+                  />
+                )}
+                {room.status === "defendant_turn" && (
+                  <DialogueBox
+                    key="def"
+                    characterId={
+                      settings.defendantIsAi
+                        ? settings.defendantAiCharacter
+                        : playerRole === "defendant"
+                          ? characterId
+                          : opponentCharacterId
+                    }
+                    speakerLabel="Defense"
+                    text={gameState.defendant_text}
+                    isPlayer={playerRole === "defendant"}
+                    isTyping={playerRole === "defendant" && canSubmit}
+                  />
+                )}
+                {room.status === "jury_voting" && (
+                  <DialogueBox
+                    key="jury"
+                    characterId={activeSpeakerCharacter}
+                    speakerLabel="Jury Foreman"
+                    text={`Deliberation in progress… ${gameState.guilty_votes} guilty · ${gameState.not_guilty_votes} not guilty`}
+                  />
+                )}
+                {room.status === "verdict" && gameState.verdict_json && (
+                  <DialogueBox
+                    key="verdict"
+                    characterId="darius"
+                    speakerLabel="Chief Justice Vanguard"
+                    text={`${gameState.verdict_json.finalVerdict} — ${gameState.verdict_json.reasoning}`}
+                  />
+                )}
+              </AnimatePresence>
 
-          {canSubmit && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="border border-amber-900/40 bg-black/60 p-4"
-            >
-              <label className="block">
-                <span className="font-mono text-[10px] uppercase tracking-widest text-amber-500/80">
-                  Your Statement — {getCharacter(characterId).name}
-                </span>
-                <textarea
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  rows={4}
-                  placeholder="Enter your legal argument…"
-                  className="mt-2 w-full resize-none border border-zinc-700 bg-zinc-950 px-3 py-2 font-legal text-sm text-zinc-100 outline-none focus:border-amber-600"
-                />
-              </label>
-              <motion.button
-                type="button"
-                disabled={isBusy || !draft.trim()}
-                onClick={() => void submitStatement()}
-                className="mt-3 w-full border border-amber-700 bg-amber-950/50 py-3 font-mono text-xs uppercase tracking-widest text-amber-100 disabled:opacity-50"
-                whileTap={{ scale: 0.98 }}
-              >
-                {isBusy ? "Recording…" : "Submit Statement"}
-              </motion.button>
-            </motion.div>
-          )}
+              {canSubmit && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="border border-amber-900/40 bg-black/60 p-4"
+                >
+                  <label className="block">
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-amber-500/80">
+                      Your Statement — {getCharacter(characterId).name}
+                    </span>
+                    <textarea
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      rows={5}
+                      placeholder="Enter your legal argument… Use the Evidence Vault to present exhibits."
+                      className="input-readable mt-2 w-full resize-y border border-zinc-700 bg-zinc-950 px-3 py-2 font-sans text-sm leading-relaxed text-zinc-100 outline-none focus:border-amber-600"
+                    />
+                  </label>
+                  <motion.button
+                    type="button"
+                    disabled={isBusy || !draft.trim()}
+                    onClick={() => void submitStatement()}
+                    className="mt-3 w-full border border-amber-700 bg-amber-950/50 py-3 font-mono text-xs uppercase tracking-widest text-amber-100 disabled:opacity-50"
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    {isBusy ? "Recording…" : "Submit Statement"}
+                  </motion.button>
+                </motion.div>
+              )}
 
-          {room.status === "jury_voting" && isHost && (
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => void advanceFromJury()}
-                className="flex-1 border border-zinc-700 py-2 font-mono text-[10px] uppercase text-zinc-400"
-              >
-                Enter Verdict Chamber
-              </button>
-              <button
-                type="button"
-                onClick={() => void runJuryAndVerdict()}
-                disabled={isBusy}
-                className="flex-1 border border-amber-700 py-2 font-mono text-[10px] uppercase text-amber-100"
-              >
-                Summon AI Judge
-              </button>
+              {room.status === "jury_voting" && isHost && (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void advanceFromJury()}
+                    className="flex-1 border border-zinc-700 py-2 font-mono text-[10px] uppercase text-zinc-400"
+                  >
+                    Enter Verdict Chamber
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void runJuryAndVerdict()}
+                    disabled={isBusy}
+                    className="flex-1 border border-amber-700 py-2 font-mono text-[10px] uppercase text-amber-100"
+                  >
+                    Summon AI Judge
+                  </button>
+                </div>
+              )}
+
+              {error && (
+                <p className="border border-red-900/50 bg-red-950/30 px-3 py-2 font-sans text-xs text-red-300">
+                  {error}
+                </p>
+              )}
             </div>
-          )}
+          </div>
 
-          {error && (
-            <p className="border border-red-900/50 bg-red-950/30 px-3 py-2 font-mono text-xs text-red-300">
-              {error}
-            </p>
-          )}
+          <EvidenceVault
+            evidence={evidence}
+            canPresent={canSubmit}
+            onPresentEvidence={handlePresentEvidence}
+          />
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

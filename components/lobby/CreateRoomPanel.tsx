@@ -120,7 +120,7 @@ export function CreateRoomPanel({
           <input
             value={settings.chamberName}
             onChange={(e) => patchSettings({ chamberName: e.target.value })}
-            className="mt-1.5 w-full border border-zinc-700 bg-black/60 px-3 py-2.5 font-legal text-zinc-100 outline-none focus:border-amber-600"
+            className="input-readable mt-1.5 w-full border border-zinc-700 bg-black/60 px-3 py-2.5 font-sans text-zinc-100 outline-none focus:border-amber-600"
           />
         </label>
 

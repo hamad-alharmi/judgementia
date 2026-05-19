@@ -26,3 +26,21 @@ body {
 ::selection {
   @apply bg-amber-900/50 text-amber-100;
 }
+
+/* Readable typography for all user-editable fields */
+input,
+textarea,
+select,
+button {
+  font-family: var(--font-sans), system-ui, "Segoe UI", sans-serif;
+}
+
+.input-readable,
+textarea,
+input[type="text"],
+input[type="email"],
+input[type="password"] {
+  @apply font-sans antialiased;
+  font-feature-settings: normal;
+  letter-spacing: normal;
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import type { CharacterId } from "@/lib/characters";
 import type { AvatarConfig } from "@/lib/database/types";
@@ -8,7 +9,7 @@ import { normalizeAvatarConfig } from "@/lib/avatar";
 import { useProfileRealtime } from "@/hooks/useProfileRealtime";
 import { useRoomRealtime } from "@/hooks/useRoomRealtime";
 import { useGameStateRealtime } from "@/hooks/useGameStateRealtime";
-import { updateProfileAvatar } from "@/lib/supabase/data";
+import { fetchRoom, updateProfileAvatar } from "@/lib/supabase/data";
 import { CharacterSelect } from "@/components/terminal/CharacterSelect";
 import { ProfileStats } from "@/components/terminal/ProfileStats";
 import { MatchmakingCore } from "@/components/terminal/MatchmakingCore";
@@ -19,6 +20,7 @@ interface MainTerminalProps {
 }
 
 export function MainTerminal({ userId }: MainTerminalProps) {
+  const router = useRouter();
   const { profile, isLoading, refresh } = useProfileRealtime(userId);
   const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(
     normalizeAvatarConfig(undefined),
@@ -106,8 +108,13 @@ export function MainTerminal({ userId }: MainTerminalProps) {
               userId={userId}
               defaultCharacterId={avatarConfig.characterId}
               displayName={displayName}
-              onRoomJoined={(id) => {
+              onRoomJoined={async (id) => {
                 setActiveRoomId(id);
+                const joined = await fetchRoom(id);
+                if (joined?.code) {
+                  router.push(`/room/${joined.code}`);
+                  return;
+                }
                 setInSession(true);
               }}
             />

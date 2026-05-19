@@ -52,7 +52,7 @@ export function DialogueBox({
         <p className="font-legal text-xs text-zinc-500">{character.name}</p>
         <motion.p
           key={text}
-          className="mt-2 font-legal text-sm leading-relaxed text-zinc-100"
+          className="mt-2 font-sans text-sm leading-relaxed text-zinc-100"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
         >

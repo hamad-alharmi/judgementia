@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Cormorant_Garamond, IBM_Plex_Mono } from "next/font/google";
+import { Cormorant_Garamond, IBM_Plex_Mono, Inter } from "next/font/google";
 import "./globals.css";
 
 const legalFont = Cormorant_Garamond({
@@ -14,6 +14,12 @@ const monoFont = IBM_Plex_Mono({
   weight: ["400", "500"],
 });
 
+const sansFont = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  weight: ["400", "500", "600"],
+});
+
 export const metadata: Metadata = {
   title: "Judgementia",
   description:
@@ -26,8 +32,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${legalFont.variable} ${monoFont.variable}`}>
-      <body className="font-legal">{children}</body>
+    <html
+      lang="en"
+      className={`${legalFont.variable} ${monoFont.variable} ${sansFont.variable}`}
+    >
+      <body className="font-sans text-zinc-100">{children}</body>
     </html>
   );
 }

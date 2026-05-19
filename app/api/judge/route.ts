@@ -5,7 +5,10 @@ import {
   simulateJuryVoteSplit,
 } from "@/lib/judge/automation";
 import type { JudgeRequestBody, JudgeResponseBody } from "@/lib/judge/types";
-import { requestJudgeVerdict } from "@/lib/gemini";
+import {
+  fallbackJudgeVerdict,
+  requestJudgeVerdict,
+} from "@/lib/judge/verdict";
 
 export const dynamic = "force-dynamic";
 
@@ -27,16 +30,10 @@ function parseJudgeRequestBody(body: unknown): JudgeRequestBody | null {
   }
   const prosecutorRole = record.prosecutorRole;
   const defendantRole = record.defendantRole;
-  if (
-    prosecutorRole !== undefined &&
-    !isLawyerRole(prosecutorRole)
-  ) {
+  if (prosecutorRole !== undefined && !isLawyerRole(prosecutorRole)) {
     return null;
   }
-  if (
-    defendantRole !== undefined &&
-    !isLawyerRole(defendantRole)
-  ) {
+  if (defendantRole !== undefined && !isLawyerRole(defendantRole)) {
     return null;
   }
   return {
@@ -49,9 +46,11 @@ function parseJudgeRequestBody(body: unknown): JudgeRequestBody | null {
 }
 
 export async function POST(request: Request) {
+  let body: JudgeRequestBody | null = null;
+
   try {
     const json: unknown = await request.json();
-    const body = parseJudgeRequestBody(json);
+    body = parseJudgeRequestBody(json);
 
     if (!body) {
       return NextResponse.json(
@@ -78,11 +77,19 @@ export async function POST(request: Request) {
 
     const jury = simulateJuryVoteSplit(prosecutorArgument, defendantArgument);
 
-    const verdict = await requestJudgeVerdict({
-      scenario: body.scenario,
-      prosecutorText: prosecutorArgument,
-      defendantText: defendantArgument,
-    });
+    let verdict;
+    try {
+      verdict = await requestJudgeVerdict({
+        scenario: body.scenario,
+        prosecutorText: prosecutorArgument,
+        defendantText: defendantArgument,
+      });
+    } catch (judgeError) {
+      const detail =
+        judgeError instanceof Error ? judgeError.message : "Judge API error";
+      console.error("[judge] Gemini verdict failed:", detail);
+      verdict = fallbackJudgeVerdict(detail);
+    }
 
     const response: JudgeResponseBody = {
       verdict,
@@ -95,6 +102,22 @@ export async function POST(request: Request) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Judge route failed.";
+    console.error("[judge] route error:", message);
+
+    if (body) {
+      const jury = simulateJuryVoteSplit(
+        body.prosecutorText,
+        body.defendantText,
+      );
+      const response: JudgeResponseBody = {
+        verdict: fallbackJudgeVerdict(message),
+        prosecutorArgument: body.prosecutorText,
+        defendantArgument: body.defendantText,
+        jury,
+      };
+      return NextResponse.json(response, { status: 200 });
+    }
+
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
