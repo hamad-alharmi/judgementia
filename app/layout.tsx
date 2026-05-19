@@ -1,22 +1,33 @@
-import './globals.css'
-import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import type { Metadata } from "next";
+import { Cormorant_Garamond, IBM_Plex_Mono } from "next/font/google";
+import "./globals.css";
 
-const inter = Inter({ subsets: ['latin'] })
+const legalFont = Cormorant_Garamond({
+  subsets: ["latin"],
+  variable: "--font-legal",
+  weight: ["400", "600", "700"],
+});
+
+const monoFont = IBM_Plex_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  weight: ["400", "500"],
+});
 
 export const metadata: Metadata = {
-  title: 'Judgementia',
-  description: 'Real-time multiplayer AI courtroom game',
-}
+  title: "Judgementia",
+  description:
+    "Premium court legal thriller multiplayer — argue, persuade, verdict.",
+};
 
 export default function RootLayout({
   children,
-}: {
-  children: React.ReactNode
-}) {
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <html lang="en" className={inter.className}>
-      <body className="min-h-screen bg-zinc-950 text-zinc-50 antialiased">{children}</body>
+    <html lang="en" className={`${legalFont.variable} ${monoFont.variable}`}>
+      <body className="font-legal">{children}</body>
     </html>
-  )
+  );
 }

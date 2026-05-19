@@ -1,66 +1,100 @@
-import { GoogleGenAI } from '@google/genai'
-import { NextResponse } from 'next/server'
+import { NextResponse } from "next/server";
+import {
+  generateAiDefendantArgument,
+  generateAiProsecutorArgument,
+  simulateJuryVoteSplit,
+} from "@/lib/judge/automation";
+import type { JudgeRequestBody, JudgeResponseBody } from "@/lib/judge/types";
+import { requestJudgeVerdict } from "@/lib/gemini";
 
-// Initialize Gemini AI
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! })
-const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+export const dynamic = "force-dynamic";
 
-export const dynamic = 'force-dynamic'
+function isLawyerRole(value: unknown): value is "human" | "ai" {
+  return value === "human" || value === "ai";
+}
+
+function parseJudgeRequestBody(body: unknown): JudgeRequestBody | null {
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  if (
+    typeof record.scenario !== "string" ||
+    typeof record.prosecutorText !== "string" ||
+    typeof record.defendantText !== "string"
+  ) {
+    return null;
+  }
+  const prosecutorRole = record.prosecutorRole;
+  const defendantRole = record.defendantRole;
+  if (
+    prosecutorRole !== undefined &&
+    !isLawyerRole(prosecutorRole)
+  ) {
+    return null;
+  }
+  if (
+    defendantRole !== undefined &&
+    !isLawyerRole(defendantRole)
+  ) {
+    return null;
+  }
+  return {
+    scenario: record.scenario,
+    prosecutorText: record.prosecutorText,
+    defendantText: record.defendantText,
+    prosecutorRole: prosecutorRole ?? "human",
+    defendantRole: defendantRole ?? "human",
+  };
+}
 
 export async function POST(request: Request) {
   try {
-    const { crimeScenario, prosecutorArgument, defendantArgument, voteDistribution } = await request.json()
+    const json: unknown = await request.json();
+    const body = parseJudgeRequestBody(json);
 
-    // Construct the prompt for the AI Judge
-    const prompt = `
-You are an AI Supreme Court Judge in a chaotic, absurd courtroom. Your task is to deliver a theatrical, witty, and ruthless verdict based on the arguments presented.
+    if (!body) {
+      return NextResponse.json(
+        { error: "Invalid request body." },
+        { status: 400 },
+      );
+    }
 
-Case Scenario: "${crimeScenario}"
+    const automationContext = {
+      scenario: body.scenario,
+      prosecutorText: body.prosecutorText,
+      defendantText: body.defendantText,
+    };
 
-Prosecutor's Argument: "${prosecutorArgument}"
+    const prosecutorArgument =
+      body.prosecutorRole === "ai"
+        ? generateAiProsecutorArgument(automationContext)
+        : body.prosecutorText;
 
-Defendant's Argument: "${defendantArgument}"
+    const defendantArgument =
+      body.defendantRole === "ai"
+        ? generateAiDefendantArgument(automationContext)
+        : body.defendantText;
 
-Jury Vote Distribution: Guilty: ${voteDistribution.guilty}, Not Guilty: ${voteDistribution.not_guilty}
+    const jury = simulateJuryVoteSplit(prosecutorArgument, defendantArgument);
 
-Instructions:
-1. Analyze both arguments, considering the jury's potential bias.
-2. Deliver a final verdict (GUILTY or NOT GUILTY).
-3. If GUILTY, devise an absurd, ironic, or hilariously fitting punishment.
-4. Provide a detailed reasoning for your verdict in the style of a dramatic, witty Supreme Court Justice.
-5. Keep your response concise but vivid, suitable for display on a "Verdict Certificate".
+    const verdict = await requestJudgeVerdict({
+      scenario: body.scenario,
+      prosecutorText: prosecutorArgument,
+      defendantText: defendantArgument,
+    });
 
-Output Format:
-VERDICT: [GUILTY or NOT GUILTY]
-PUNISHMENT: [If guilty, describe the absurd punishment; if not guilty, state "No punishment, the defendant is free."]
-REASONING: [Your detailed reasoning]
-`
-
-    // Generate content using Gemini
-    const result = await model.generateContent(prompt)
-    const response = await result.response
-    const text = response.text()
-
-    // Parse the response to extract verdict, punishment, and reasoning
-    const verdictMatch = text.match(/VERDICT:\s*(GUILTY|NOT GUILTY)/i)
-    const punishmentMatch = text.match(/PUNISHMENT:\s*([\s\S]*?)(?=REASONING:|$)/i)
-    const reasoningMatch = text.match(/REASONING:\s*([\s\S]*)/i)
-
-    const verdict = verdictMatch ? verdictMatch[1].toLowerCase() === 'guilty' ? 'guilty' : 'not_guilty' : 'not_guilty'
-    const punishment = punishmentMatch ? punishmentMatch[1].trim() : null
-    const reasoning = reasoningMatch ? reasoningMatch[1].trim() : null
-
-    // Return structured data
-    return NextResponse.json({
+    const response: JudgeResponseBody = {
       verdict,
-      punishment,
-      reasoning
-    })
+      prosecutorArgument,
+      defendantArgument,
+      jury,
+    };
+
+    return NextResponse.json(response, { status: 200 });
   } catch (error) {
-    console.error('Error in Gemini AI judge:', error)
-    return NextResponse.json(
-      { error: 'Failed to generate AI verdict' },
-      { status: 500 }
-    )
+    const message =
+      error instanceof Error ? error.message : "Judge route failed.";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
