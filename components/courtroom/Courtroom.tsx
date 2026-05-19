@@ -19,8 +19,13 @@ import {
   updateGameState,
   updateRoomStatus,
 } from "@/lib/supabase/data";
-import { simulateJuryVoteSplit } from "@/lib/judge/automation";
+import {
+  generateAiDefendantArgument,
+  generateAiProsecutorArgument,
+  simulateJuryVoteSplit,
+} from "@/lib/judge/automation";
 import type { JudgeResponseBody } from "@/lib/judge/types";
+import type { RoomSettings } from "@/lib/room/settings";
 
 interface CourtroomProps {
   room: RoomRow;
@@ -28,6 +33,7 @@ interface CourtroomProps {
   userId: string;
   characterId: CharacterId;
   playerRole: PlayerRole;
+  settings: RoomSettings;
   onExit: () => void;
 }
 
@@ -37,6 +43,7 @@ export function Courtroom({
   userId,
   characterId,
   playerRole,
+  settings,
   onExit,
 }: CourtroomProps) {
   const [draft, setDraft] = useState("");
@@ -51,7 +58,10 @@ export function Courtroom({
   );
   const activeZone = zoneForRoomStatus(room.status);
   const isHost = room.host_id === userId;
-  const canSubmit = canSubmitStatement(room.status, playerRole);
+  const canSubmit =
+    canSubmitStatement(room.status, playerRole) &&
+    !(playerRole === "prosecutor" && settings.prosecutorIsAi) &&
+    !(playerRole === "defendant" && settings.defendantIsAi);
 
   useEffect(() => {
     void fetchRoomPlayers(room.id).then((players) => {
@@ -60,7 +70,57 @@ export function Courtroom({
         setOpponentCharacterId(opponent.character_id as CharacterId);
       }
     });
-  }, [room.id, userId]);
+    if (settings.prosecutorIsAi) {
+      setOpponentCharacterId((prev) =>
+        playerRole === "defendant" ? settings.prosecutorAiCharacter : prev,
+      );
+    }
+    if (settings.defendantIsAi) {
+      setOpponentCharacterId((prev) =>
+        playerRole === "prosecutor" ? settings.defendantAiCharacter : prev,
+      );
+    }
+  }, [room.id, userId, playerRole, settings]);
+
+  useEffect(() => {
+    const runAiTurn = async () => {
+      if (isBusy) {
+        return;
+      }
+      const ctx = { scenario: room.scenario, prosecutorText: gameState.prosecutor_text, defendantText: gameState.defendant_text };
+      if (
+        room.status === "prosecutor_turn" &&
+        settings.prosecutorIsAi &&
+        !gameState.prosecutor_text.trim()
+      ) {
+        setIsBusy(true);
+        const text = generateAiProsecutorArgument(ctx);
+        await updateGameState(room.id, { prosecutor_text: text });
+        await updateRoomStatus(room.id, "defendant_turn");
+        setIsBusy(false);
+      } else if (
+        room.status === "defendant_turn" &&
+        settings.defendantIsAi &&
+        !gameState.defendant_text.trim()
+      ) {
+        setIsBusy(true);
+        const text = generateAiDefendantArgument(ctx);
+        await updateGameState(room.id, { defendant_text: text });
+        await updateRoomStatus(room.id, "jury_voting");
+        setIsBusy(false);
+      }
+    };
+    void runAiTurn();
+  }, [
+    room.status,
+    room.id,
+    room.scenario,
+    settings.prosecutorIsAi,
+    settings.defendantIsAi,
+    gameState.prosecutor_text,
+    gameState.defendant_text,
+    isBusy,
+  ]);
 
   useEffect(() => {
     if (room.status === "prosecutor_turn") {
@@ -106,18 +166,6 @@ export function Courtroom({
     }
   };
 
-  const beginTrial = async () => {
-    setIsBusy(true);
-    setError(null);
-    try {
-      await updateRoomStatus(room.id, "prosecutor_turn");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not start trial.");
-    } finally {
-      setIsBusy(false);
-    }
-  };
-
   const runJuryAndVerdict = async () => {
     setIsBusy(true);
     setError(null);
@@ -139,10 +187,8 @@ export function Courtroom({
           scenario: room.scenario,
           prosecutorText: gameState.prosecutor_text,
           defendantText: gameState.defendant_text,
-          prosecutorRole:
-            20 > gameState.prosecutor_text.length ? "ai" : "human",
-          defendantRole:
-            20 > gameState.defendant_text.length ? "ai" : "human",
+          prosecutorRole: settings.prosecutorIsAi ? "ai" : "human",
+          defendantRole: settings.defendantIsAi ? "ai" : "human",
         }),
       });
 
@@ -199,7 +245,11 @@ export function Courtroom({
               <DialogueBox
                 key="pros"
                 characterId={
-                  playerRole === "prosecutor" ? characterId : opponentCharacterId
+                  settings.prosecutorIsAi
+                    ? settings.prosecutorAiCharacter
+                    : playerRole === "prosecutor"
+                      ? characterId
+                      : opponentCharacterId
                 }
                 speakerLabel="Prosecution"
                 text={gameState.prosecutor_text}
@@ -211,7 +261,11 @@ export function Courtroom({
               <DialogueBox
                 key="def"
                 characterId={
-                  playerRole === "defendant" ? characterId : opponentCharacterId
+                  settings.defendantIsAi
+                    ? settings.defendantAiCharacter
+                    : playerRole === "defendant"
+                      ? characterId
+                      : opponentCharacterId
                 }
                 speakerLabel="Defense"
                 text={gameState.defendant_text}
@@ -236,24 +290,6 @@ export function Courtroom({
               />
             )}
           </AnimatePresence>
-
-          {room.status === "lobby" && scenario && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="border border-zinc-800 bg-zinc-950/80 p-4"
-            >
-              <p className="font-mono text-[10px] uppercase text-zinc-500">
-                {scenario.charge}
-              </p>
-              <p className="mt-2 font-legal text-sm text-zinc-300">
-                {scenario.synopsis}
-              </p>
-              <p className="mt-2 font-mono text-xs text-zinc-600">
-                {scenario.evidenceSummary}
-              </p>
-            </motion.div>
-          )}
 
           {canSubmit && (
             <motion.div
@@ -283,19 +319,6 @@ export function Courtroom({
                 {isBusy ? "Recording…" : "Submit Statement"}
               </motion.button>
             </motion.div>
-          )}
-
-          {room.status === "lobby" && isHost && (
-            <motion.button
-              type="button"
-              onClick={() => void beginTrial()}
-              disabled={isBusy}
-              className="w-full border border-amber-700 py-3 font-mono text-xs uppercase tracking-widest text-amber-100"
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              Begin Trial
-            </motion.button>
           )}
 
           {room.status === "jury_voting" && isHost && (

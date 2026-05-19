@@ -8,6 +8,7 @@ import type {
   RoomRow,
   RoomStatus,
 } from "@/lib/database/types";
+import type { RoomSettings } from "@/lib/room/settings";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatSupabaseError } from "@/lib/supabase/errors";
 
@@ -83,6 +84,7 @@ export async function createRoomRow(input: {
   status: RoomStatus;
   scenario: string;
   host_id: string;
+  settings: RoomSettings;
 }): Promise<RoomRow> {
   const supabase = createSupabaseBrowserClient();
   const { data, error } = await supabase
@@ -93,6 +95,7 @@ export async function createRoomRow(input: {
         status: input.status,
         scenario: input.scenario,
         host_id: input.host_id,
+        settings: input.settings,
       },
     ])
     .select("*")
@@ -118,6 +121,34 @@ export async function ensureGameStateRow(roomId: string): Promise<void> {
     ],
     { onConflict: "room_id" },
   );
+  if (error) {
+    throw new Error(formatSupabaseError(error));
+  }
+}
+
+export async function updateRoomSettings(
+  roomId: string,
+  settings: RoomSettings,
+): Promise<void> {
+  const supabase = createSupabaseBrowserClient();
+  const { error } = await supabase
+    .from("rooms")
+    .update({ settings })
+    .eq("id", roomId);
+  if (error) {
+    throw new Error(formatSupabaseError(error));
+  }
+}
+
+export async function updateRoomScenario(
+  roomId: string,
+  scenario: string,
+): Promise<void> {
+  const supabase = createSupabaseBrowserClient();
+  const { error } = await supabase
+    .from("rooms")
+    .update({ scenario })
+    .eq("id", roomId);
   if (error) {
     throw new Error(formatSupabaseError(error));
   }
@@ -165,11 +196,20 @@ export async function upsertRoomPlayer(input: {
   user_id: string;
   character_id: CharacterId;
   role: PlayerRole;
+  is_ready?: boolean;
+  display_name?: string | null;
 }): Promise<void> {
   const supabase = createSupabaseBrowserClient();
-  const { error } = await supabase.from("room_players").upsert([input], {
-    onConflict: "room_id,user_id",
-  });
+  const { error } = await supabase.from("room_players").upsert(
+    [
+      {
+        ...input,
+        is_ready: input.is_ready ?? false,
+        display_name: input.display_name ?? null,
+      },
+    ],
+    { onConflict: "room_id,user_id" },
+  );
   if (error) {
     throw new Error(formatSupabaseError(error));
   }
@@ -195,12 +235,16 @@ export async function fetchOpenLobbyRoom(): Promise<RoomRow | null> {
     .from("rooms")
     .select("*")
     .eq("status", "lobby")
-    .limit(1)
-    .maybeSingle();
+    .limit(20);
   if (error) {
     throw new Error(formatSupabaseError(error));
   }
-  return data as RoomRow | null;
+  const rows = (data ?? []) as RoomRow[];
+  const open = rows.find((row) => {
+    const settings = row.settings as { isPublic?: boolean };
+    return settings.isPublic !== false;
+  });
+  return open ?? null;
 }
 
 export async function fetchGameState(

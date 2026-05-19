@@ -19,16 +19,24 @@ create table if not exists public.rooms (
     status in ('lobby', 'prosecutor_turn', 'defendant_turn', 'jury_voting', 'verdict')
   ),
   scenario text not null,
-  host_id uuid references auth.users (id) on delete set null
+  host_id uuid references auth.users (id) on delete set null,
+  settings jsonb not null default '{}'::jsonb
 );
+
+alter table public.rooms add column if not exists settings jsonb not null default '{}'::jsonb;
 
 create table if not exists public.room_players (
   room_id uuid not null references public.rooms (id) on delete cascade,
   user_id uuid not null references auth.users (id) on delete cascade,
   character_id text not null,
   role text not null check (role in ('prosecutor', 'defendant')),
+  is_ready boolean not null default false,
+  display_name text,
   primary key (room_id, user_id)
 );
+
+alter table public.room_players add column if not exists is_ready boolean not null default false;
+alter table public.room_players add column if not exists display_name text;
 
 create table if not exists public.game_state (
   room_id uuid primary key references public.rooms (id) on delete cascade,

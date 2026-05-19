@@ -99,6 +99,11 @@ const FALLBACK_SCENARIO: CrimeScenario = CRIME_SCENARIOS[0] ?? {
   severity: "felony",
 };
 
+export function getScenarioById(id: string): CrimeScenario | null {
+  const found = CRIME_SCENARIOS.find((s) => s.id === id);
+  return found ?? null;
+}
+
 export function pickRandomScenario(): CrimeScenario {
   const index = Math.floor(Math.random() * CRIME_SCENARIOS.length);
   return CRIME_SCENARIOS[index] ?? FALLBACK_SCENARIO;

@@ -30,6 +30,8 @@ export interface RoomPlayerRow {
   user_id: string;
   character_id: CharacterId;
   role: PlayerRole;
+  is_ready: boolean;
+  display_name: string | null;
 }
 
 export interface RoomRow {
@@ -38,6 +40,7 @@ export interface RoomRow {
   status: RoomStatus;
   scenario: string;
   host_id: string | null;
+  settings: Record<string, unknown>;
 }
 
 export interface GameStateRow {
